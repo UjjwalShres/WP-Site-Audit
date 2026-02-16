@@ -1,0 +1,251 @@
+/* ===============================
+   HEADER / BRANDING
+================================ */
+
+.wpsa-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: fit-content;
+}
+
+.wpsa-header-container {
+  background-color: #2a2e30;
+  margin: 20px 20px 20px 0;
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  border-radius: 20px;
+}
+
+.wpsa-logo {
+  width: 38px;
+  height: 38px;
+}
+
+.wp-audit-logo {
+  font-size: 48px;
+  font-weight: 600;
+  color: white;
+  font-family: "DM Serif Display", serif;
+}
+
+.wpsa-header img {
+  height: 70px;
+}
+
+/* ===============================
+   TABS (custom styled)
+================================ */
+
+.wpsa-tabs {
+  display: flex;
+  gap: 30px;
+  align-items: center;
+  margin-right: 20px;
+}
+
+.wpsa-tab {
+  text-decoration: none;
+  padding: 5px 5px 2px 5px;
+  color: #f0f0f1;
+  font-weight: 400;
+  transition: 0.15s;
+  font-size: 20px;
+}
+
+.wpsa-tab:hover {
+  color: #ff914d;
+  border-bottom: 2px solid #ff914d;
+}
+
+.wpsa-tab-active {
+  font-weight: 600;
+  color: #ff914d;
+  border-bottom: 2px solid #ff914d;
+}
+
+/* ===============================
+   CARDS
+================================ */
+
+.wpsa-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.wpsa-card {
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  border: 2px solid #2a2e30;
+  position: relative;
+  z-index: 1;
+}
+
+.wpsa-card h3 {
+  font-size: 16px;
+  margin-bottom: 20px;
+  color: #666;
+}
+
+.wpsa-value {
+  font-size: 32px;
+  font-weight: 600;
+  font-family: "DM Serif Display", serif;
+  line-height: normal;
+}
+
+.wpsa-card h3,
+.wpsa-card .wpsa-value,
+.wpsa-tooltip {
+  position: relative;
+  z-index: 1;
+}
+
+.wpsa-card-good::before {
+  content: "✓";
+  color: #ceeac2;
+  font-size: 150px;
+  font-family: "DM Serif Display", serif;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.wpsa-card-warn::before {
+  content: "!";
+  color: #ffd0b3;
+  font-size: 200px;
+  font-family: "DM Serif Display", serif;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.wpsa-card-bad::before {
+  content: "X";
+  color: #ffc6c6;
+  font-size: 180px;
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Tooltip wrapper */
+.wpsa-tooltip {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  cursor: pointer;
+}
+
+/* Small icon */
+.wpsa-tooltip-icon {
+  font-size: 18px;
+  font-family: "DM Serif Display", serif;
+  color: #ff914d;
+  border: 1px solid #ff914d;
+  padding: 3px 10px;
+  border-radius: 50%;
+  z-index: 2;
+}
+
+/* Hidden tooltip content */
+.wpsa-tooltip-content {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  width: 180px;
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  border: 2px solid #2a2e30;
+  color: #2a2e30;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: all 0.2s ease;
+  z-index: 3;
+}
+
+/* Show on hover */
+.wpsa-tooltip-icon:hover + .wpsa-tooltip-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ===============================
+   TABLE
+================================ */
+.table-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 72px 1fr 1fr;
+  gap: 16px;
+}
+
+.wpsa-table {
+  grid-column: 1 / span 4;
+  border-radius: 12px;
+  border: 2px solid #2a2e30 !important;
+  overflow: hidden;
+}
+
+.wpsa-table th {
+  background: #f6f7f7;
+  font-weight: 600;
+  padding: 10px;
+  color: white !important;
+  background-color: #2a2e30;
+  position: sticky;
+}
+
+.wpsa-table td {
+  padding: 9px 10px;
+}
+
+.wpsa-table td {
+  border-collapse: collapse;
+  border: 1px solid #2a2e30;
+}
+
+.wpsa-table tr:nth-child(even) {
+  background: #f5f5f5;
+}
+
+.wpsa-table tr:nth-child(odd) {
+  background: white;
+}
+
+.wpsa-total-row {
+  background: #ff914d !important;
+  font-weight: 600;
+}
+
+/* ===============================
+   ALERT BOXES
+================================ */
+.orphan-tables {
+  grid-column: 5 / span 6;
+  padding: 20px;
+  border: 2px solid #2a2e30;
+  border-radius: 12px;
+  height: fit-content;
+  background-color: white;
+  color: #2a2e30 !important;
+}

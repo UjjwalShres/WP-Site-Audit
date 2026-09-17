@@ -8,33 +8,58 @@ class WP_Site_Audit_Admin {
 
     public static function init() {
         add_menu_page(
-            'Site Audit', 
-            'Site Audit', 
-            'manage_options', 
-            'wp-site-audit', 
-            [__CLASS__, 'render_dashboard'], 
-            'dashicons-analytics', 
+            'Site Audit',
+            'Site Audit',
+            'manage_options',
+            'wp-site-audit',
+            [__CLASS__, 'render_dashboard'],
+            'dashicons-analytics',
             3
         );
     }
+
+    private static function get_report() {
+        $report = get_transient('wpsa_last_report');
+
+        if (!$report) {
+            $report = WP_Site_Audit_Report::generate();
+            set_transient('wpsa_last_report', $report, 300);
+        }
+
+        return $report;
+    }
+
 
     private static function card($title, $value, $state = 'good', $tooltip = null) {
 
     $tooltip_html = '';
 
-    if ($tooltip && in_array($state, ['warn','bad'])) {
+    if ($tooltip && is_array($tooltip)) {
 
-        $tooltip_html = '
-        <div class="wpsa-tooltip">
-            <span class="wpsa-tooltip-icon">i</span>
-            <div class="wpsa-tooltip-content">
-                <strong>Thresholds</strong><br>
-                Good: '.$tooltip['good'].'<br>
-                Warn: '.$tooltip['warn'].'<br>
-                Bad: '.$tooltip['bad'].'
-            </div>
-        </div>';
+    $tooltip_html = '
+    <div class="wpsa-tooltip">
+        <span class="wpsa-tooltip-icon wpsa-tooltip-icon-'.$state.'">i</span>
+        <div class="wpsa-tooltip-content">';
+
+    foreach ($tooltip as $key => $message) {
+
+        $icon = '';
+        if ($key === 'good') {
+            $icon = '<span class="good">✓ </span>';
+        } elseif ($key === 'warn') {
+            $icon = '<span class="warn">! </span>';
+        } elseif ($key === 'bad') {
+            $icon = '<span class="bad">X </span>';
+        }
+
+        $tooltip_html .= '<p>'.$icon.$message.'</p>';
     }
+
+    $tooltip_html .= '
+        </div>
+    </div>';
+    }
+
 
     return '
     <div class="wpsa-card">
@@ -69,7 +94,7 @@ class WP_Site_Audit_Admin {
             <div class="wp-audit-logo">WP Site Audit</div>
           </div>';
 
-    
+
 
     /* ======================
        TABS
@@ -107,19 +132,18 @@ class WP_Site_Audit_Admin {
 
     private static function render_db_tab() {
 
-    $stats = WP_Site_Audit_DB::get_db_stats();
+    $report = self::get_report();
+    $db = $report['database'];
 
-    $tables = $stats['tables'];
-    $total_size = $stats['total_size'];
-    $total_overhead = $stats['total_overhead'];
+    $tables = $db['tables'];
+    $total_rows = $db['total_rows'];
 
-    //$size_mb = round($total_size/1024/1024,2);
-    $size_mb = 301;
-    $overhead_mb = round($total_overhead/1024/1024,2);
+    $size_mb = $db['total_size_mb'];
+    $overhead_mb = $db['total_overhead_mb'];
 
-    $revisions = WP_Site_Audit_DB::get_post_revisions();
-    $transients = WP_Site_Audit_DB::get_transients();
-    $spam = WP_Site_Audit_DB::get_spam_comments();
+    $revisions = $db['revisions'];
+    $transients = $db['transients'];
+    $spam = $db['spam_comments'];
 
     $req_size_mb = WP_Site_Audit_Health::db_size_mb($size_mb);
     $req_overhead_size_mb = WP_Site_Audit_Health::db_overhead_size_mb($overhead_mb);
@@ -216,7 +240,7 @@ class WP_Site_Audit_Admin {
 
     echo '<tr class="wpsa-total-row">
         <td>Total</td>
-        <td>-</td>
+        <td>'.$total_rows.'</td>
         <td>'.$size_mb.'</td>
         <td>'.$overhead_mb.'</td>
     </tr>';
@@ -246,13 +270,16 @@ class WP_Site_Audit_Admin {
 /* -----------------------Performance tab ---------------------------*/
 
     public static function render_performance_tab() {
-
-    $data = self::get_performance_data();
-    $req_health  = WP_Site_Audit_Health::requests($data['requests']);
-    $size_mb     = round($data['size'] / 1024 / 1024, 2);
-    $size_health = WP_Site_Audit_Health::page_size_mb($size_mb);
-    $cache_state = ($data['cache'] === 'No cache plugin detected') ? 'bad' : 'good';
     
+    $report = self::get_report();
+    $data = $report['performance'];
+    
+    $req_health  = WP_Site_Audit_Health::requests($data['requests']);
+    $size_health = WP_Site_Audit_Health::page_size_mb($data['page_size_mb']);
+    $cache_state = ($data['cache_plugin'] === 'No Cache Plugin') ? 'bad' : 'good';
+    $php_health = WP_Site_Audit_Health::php_version($data['php_version']);
+    $memory_health = WP_Site_Audit_Health::memory_limit_mb($data['memory_limit']);
+
         echo '<div class="wpsa-card-grid">';
 
         echo self::card(
@@ -267,7 +294,7 @@ class WP_Site_Audit_Admin {
         );
         echo self::card(
             'Page Size',
-            size_format($data['size']),
+            $data['page_size_mb'] . ' MB',
             $size_health['state'],
             [
                 'good' => '< 2MB',
@@ -276,8 +303,8 @@ class WP_Site_Audit_Admin {
             ]
         );
         echo self::card(
-            'Cache', 
-            $data['cache'], 
+            'Cache',
+            $data['cache_plugin'],
             $cache_state,
             [
                 'good' => '1 Cache Plugin',
@@ -285,107 +312,137 @@ class WP_Site_Audit_Admin {
                 'bad'  => 'No Cache Plugin'
             ]
             );
-        echo self::card('Load Time', 'Browser Test Needed', 'warn');
+        echo self::card('Load Time', 'Test Needed', 'warn');
 
         echo '</div>';
 
-        echo '<div class="wpsa-table-card">';
-        echo '<h3>Largest Resources</h3>';
 
-        echo '<table class="wpsa-table">
-        <tr><th>File</th><th>Size</th></tr>';
+?> <div class="bar-chart-section">
+    <div class="bar-chart">
+        <h3>Largest Resources</h3>
 
-        foreach ($data['largest'] as $res) {
-            echo '<tr>
-                    <td>'.$res['name'].'</td>
-                    <td>'.size_format($res['size']).'</td>
-                </tr>';
-        }
+        <div class="chart-container">
+            <?php
+                    $largest = $data['largest_resources'];
+                    // $largest = [
+                    // ['name' => 'jquery.js', 'size' => 1048576],       // 1 MB
+                    // //['name' => 'style.css', 'size' => 524288],        // 0.5 MB
+                    // ['name' => 'main.js', 'size' => 2097152],         // 2 MB
+                    // ['name' => 'plugin.js', 'size' => 3145728],       // 3 MB
+                    // ['name' => 'extra.css', 'size' => 1572864],       // 1.5 MB
+                    // ['name' => 'extra-large.css', 'size' => 9097152],   
+                    //     ];
+                    $max_size = max(array_column($largest, 'size')); // largest file size
+                    $y_steps = 6; // number of horizontal lines on Y-axis
+                    $step_value = ceil($max_size / $y_steps); // size per step
+                    ?>
+            <!-- Y-axis -->
+            <div class="chart-y-axis">
+                <?php for($i = $y_steps; $i >= 0; $i--):
+                        $value_bytes = $i * $step_value;
+                        // Convert to MB with 1 decimal
+                        $value_mb = $value_bytes / (1024*1024);
+                        $label = ($value_mb >= 1) ? round($value_mb, 1).' MB' : round($value_bytes / 1024, 0).' KB';
+                    ?>
+                <div class="y-label"><?php echo $label; ?></div>
+                <?php endfor; ?>
+            </div>
 
-        echo '</table></div>';
+            <!-- Bars -->
+            <div class="chart-bars">
+                <?php foreach($largest as $item):
+                        $height_percent = ($item['size'] / ($y_steps * $step_value)) * 100;
+                    ?>
+                <div class="bar" style="height: <?php echo $height_percent; ?>%">
+                    <div class="bar-value"><?php echo size_format($item['size']); ?></div>
+                </div>
+                <?php endforeach; ?>
 
+                <div class="bar-label-group">
+                    <?php foreach($largest as $label): ?>
+                    <span class="bar-label"><?php echo $label['name']; ?></span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="bar-side-section">
+        <?php 
+            echo self::card(
+                'PHP Version',
+                $data['php_version'],
+                $php_health['state'],
+                [
+                    'good' => '>= 8.1',
+                    'warn' => '8.0',
+                    'bad'  => '< 8.0'
+                ]
+            );
+
+            echo self::card(
+                'Memory Usage',
+                $data['memory_limit'] . 'B',
+                $memory_health['state'],
+                [
+                    'good' => '>= 256MB',
+                    'warn' => '128MB – 255MB',
+                    'bad'  => '< 128MB'
+                ]
+            );
+            ?>
+    </div>
+
+</div>
+
+<?php
 
     }
-
-    private static function get_performance_data() {
-
-    global $wp_scripts, $wp_styles;
-
-    $requests = 0;
-    $total_size = 0;
-    $resources = [];
-
-    // Scripts
-    foreach ($wp_scripts->registered as $script) {
-        if (!empty($script->src)) {
-            $file = ABSPATH . str_replace(site_url('/'), '', $script->src);
-            if (file_exists($file)) {
-                $size = filesize($file);
-                $resources[] = ['name' => basename($file), 'size' => $size];
-                $total_size += $size;
-                $requests++;
-            }
-        }
-    }
-
-    // Styles
-    foreach ($wp_styles->registered as $style) {
-        if (!empty($style->src)) {
-            $file = ABSPATH . str_replace(site_url('/'), '', $style->src);
-            if (file_exists($file)) {
-                $size = filesize($file);
-                $resources[] = ['name' => basename($file), 'size' => $size];
-                $total_size += $size;
-                $requests++;
-            }
-        }
-    }
-
-    usort($resources, fn($a, $b) => $b['size'] <=> $a['size']);
-
-    return [
-        'requests' => $requests,
-        'size' => $total_size,
-        'largest' => array_slice($resources, 0, 5),
-        'cache' => self::detect_cache_plugin()
-    ];
-}
-
-private static function detect_cache_plugin() {
-
-    $plugins = [
-        'litespeed-cache/litespeed-cache.php' => 'LiteSpeed Cache',
-        'wp-super-cache/wp-cache.php' => 'WP Super Cache',
-        'w3-total-cache/w3-total-cache.php' => 'W3 Total Cache',
-        'wp-rocket/wp-rocket.php' => 'WP Rocket'
-    ];
-
-    foreach ($plugins as $file => $name) {
-        if (is_plugin_active($file)) {
-            return $name . ' (Active)';
-        }
-    }
-
-    return 'No cache plugin detected';
-}
 
 
 /* -----------------------Security tab ---------------------------*/
     public static function render_security_tab() {
 
     $data = self::get_security_data();
+    $security = WP_Site_Audit_Health::security_plugins_status($data['security_plugins']);
+    $firewall_status = WP_Site_Audit_Health::firewall_status($data['firewall']);
+    $outdated_plugins_status = WP_Site_Audit_Health::outdated_plugins_status($data['updates']['plugins']);
+    $outdated_themes_status = WP_Site_Audit_Health::outdated_themes_status($data['updates']['plugins']);
+    $login_safety_status = WP_Site_Audit_Health::login_safety_status($data['login']);
 
     echo '<div class="wpsa-card-grid">';
 
-    echo self::card('Security Plugins', implode('<br>', $data['security_plugins']));
-    echo self::card('Firewall', $data['firewall']);
-    echo self::card('Outdated Plugins', $data['updates']['plugins']);
-    echo self::card('Outdated Themes', $data['updates']['themes']);
-    echo self::card('Login Safety', implode('<br>', $data['login']));
+    echo self::card(
+        'Security Plugins',
+        $security['value'],
+        $security['state'],
+        $security['tooltip']
+    );
+    echo self::card(
+        'Firewall', 
+        $firewall_status['value'],
+        $firewall_status['state'],
+        $firewall_status['tooltip']
+    );
+    echo self::card(
+        'Outdated Plugins', 
+        $outdated_plugins_status['value'],
+        $outdated_plugins_status['state'],
+        $outdated_plugins_status['tooltip']
+        );
+    echo self::card(
+        'Outdated Themes', 
+        $outdated_themes_status['value'],
+        $outdated_themes_status['state'],
+        $outdated_themes_status['tooltip']
+        );
+    echo self::card('Login Safety', $login_safety_status['value'], $login_safety_status['state'], $login_safety_status['tooltip']);
 
     echo '</div>';
 
-    echo '<div class="wpsa-table-card"><h3>Suspicious Files</h3>';
+    echo '<div class="wpsa-security-large-section">
+    <div class="wpsa-suspicious-list"><h3>Suspicious Files</h3>';
 
     if ($data['suspicious']) {
         echo '<ul>';
@@ -397,7 +454,42 @@ private static function detect_cache_plugin() {
         echo 'No suspicious patterns found';
     }
 
-    echo '</div>';
+    echo '</div>
+    
+    <div class="wpsa-security-side-section">';
+        echo self::card(
+            'Debug',
+            $data['debug_mode']['value'],
+            $data['debug_mode']['state'],
+            [
+                'good' => 'Disabled',
+                'bad'  => 'Enabled'
+            ]
+        );
+
+        // echo self::card(
+        //     'Debug Log',
+        //     $data['debug_log']['value'],
+        //     $data['debug_log']['state'],
+        //     [
+        //         'good' => 'Disabled',
+        //         'warn' => 'Enabled'
+        //     ]
+        // );
+
+        echo self::card(
+            'File Editor',
+            $data['file_edit']['value'],
+            $data['file_edit']['state'],
+            [
+                'good' => 'Disabled',
+                'bad'  => 'Enabled'
+            ]
+        );
+                
+    echo '</div>
+
+    </div>';
 
 
     }
@@ -409,7 +501,10 @@ private static function detect_cache_plugin() {
         'updates' => self::check_updates(),
         'firewall' => self::detect_firewall(),
         'login' => self::check_login_security(),
-        'suspicious' => self::scan_suspicious_files()
+        'suspicious' => self::scan_suspicious_files(),
+        'debug_mode' => self::check_debug_mode(),
+        //'debug_log'  => self::check_debug_log(),
+        'file_edit'  => self::check_file_edit()
     ];
     }
 
@@ -512,62 +607,112 @@ private static function detect_cache_plugin() {
     return $suspects;
     }
 
+    private static function check_debug_mode() {
+
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        return [
+            'value' => 'Enabled',
+            'state' => 'bad'
+        ];
+    }
+
+    return [
+        'value' => 'Disabled',
+        'state' => 'good'
+    ];
+    }
+
+    private static function check_file_edit() {
+
+    if (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT) {
+        return [
+            'value' => 'Disabled',
+            'state' => 'good'
+        ];
+    }
+
+    return [
+        'value' => 'Enabled',
+        'state' => 'bad'
+    ];
+    }
+
+
+
 /* -----------------------Files tab ---------------------------*/
     public static function render_files_tab() {
 
     $data = self::get_filesystem_data();
+    $site_size_mb_status = WP_Site_Audit_Health::site_size_mb($data['total']);
+    $uploads_size_status = WP_Site_Audit_Health::uploads_size($data['uploads']);
+    $temp_size_status = WP_Site_Audit_Health::temp_size($data['temp']);
+    $log_size_status = WP_Site_Audit_Health::log_size($data['logs']['total']);
 
     echo '<div class="wpsa-card-grid">';
 
-    echo self::card('Total Site Size', size_format($data['total']));
-    echo self::card('Uploads', size_format($data['uploads']));
-    echo self::card('Temp/Cache', size_format($data['temp']));
-    echo self::card('Log Files', count($data['logs']));
+    //echo self::card('Total Site Size', size_format($data['total']));
+    echo self::card(
+        'Total Site Size',
+        $site_size_mb_status['value'] . ' MB',
+        $site_size_mb_status['state'],
+        $site_size_mb_status['tooltip']
+    );
+    //echo self::card('Uploads', size_format($data['uploads']));
+    echo self::card(
+        'Uploads',
+        $uploads_size_status['value'] . ' MB',
+        $uploads_size_status['state'],
+        $uploads_size_status['tooltip']
+    );
+    //echo self::card('Temp/Cache', size_format($data['temp']));
+    echo self::card(
+        'Temp/Cache',
+        $temp_size_status['value'] . ' MB',
+        $temp_size_status['state'],
+        $temp_size_status['tooltip']
+    );
+    //echo self::card('Log Files', count($data['logs']));
+    echo self::card(
+        'Log Files',
+        $log_size_status['value'] . ' MB',
+        $log_size_status['state'],
+        $log_size_status['tooltip']
+    );
 
     echo '</div>';
 
-    echo '<div class="wpsa-table-card"><h3>Log Files</h3>';
+    echo '<div class="wpsa-files-large-section">
+    <div class="wpsa-log-list"><h3>Log Files</h3>';
 
-    if ($data['logs']) {
-
-        echo '<table class="wpsa-table">
-        <tr><th>File</th><th>Size</th></tr>';
-
-        foreach ($data['logs'] as $log) {
-            echo '<tr>
-                    <td>'.$log['name'].'</td>
-                    <td>'.size_format($log['size']).'</td>
-                </tr>';
+    if ($data['logs']['files']) {
+        echo '<ul>';
+        foreach ($data['logs']['files'] as $log) {
+            echo '<li>'.$log['name'].' ('. size_format($log['size']).')</li>';
         }
-
-        echo '</table>';
-
+        echo '</ul>';
     } else {
         echo 'No log files found';
     }
 
-    echo '</div>';
-
-
-    echo '<div class="wpsa-table-card"><h3>Large Files (>10MB)</h3>';
+    echo '<h3>Large Files (>10MB)</h3>';
 
     if ($data['large']) {
-
-        echo '<table class="wpsa-table">
-        <tr><th>File</th><th>Size</th></tr>';
-
+        echo '<ul>';
         foreach ($data['large'] as $file) {
-            echo '<tr>
-                    <td>'.$file['name'].'</td>
-                    <td>'.size_format($file['size']).'</td>
-                </tr>';
+            echo '<li>'.$file['name'].' ('. size_format($file['size']).')</li>';
         }
-
-        echo '</table>';
-
+        echo '</ul>';
     } else {
         echo 'No unusually large files found';
     }
+
+    echo '</div>
+    
+    <div class="wpsa-files-side-section">';
+
+    echo self::gauge($data['total']);                    
+
+    echo '</div>';
 
     echo '</div>';
 
@@ -599,26 +744,92 @@ private static function folder_size($path) {
     return $size;
 }
 
+private static function gauge($bytes) {
+
+    // Convert to MB for logic
+    $value_mb = $bytes / 1024 / 1024;
+
+    // Max 3GB (in MB)
+    $max_mb = 3072;
+
+    $percentage = min(100, ($value_mb / $max_mb) * 100);
+
+    // Determine color
+    if ($value_mb < 300) {
+        $color = '#ceeac2'; // green
+    } elseif ($value_mb < 1000) {
+        $color = '#ffd0b3'; // orange
+    } else {
+        $color = '#ffc6c6'; // red
+    }
+
+    // Format display nicely
+    $display = size_format($bytes, 1);
+
+    ob_start();
+    ?>
+
+<svg viewBox="0 0 200 120">
+
+    <!-- Background arc -->
+    <path d="M20 100 A80 80 0 0 1 180 100" stroke="#eee" stroke-width="14" fill="none" />
+
+    <!-- Value arc -->
+    <path d="M20 100 A80 80 0 0 1 180 100" stroke="<?php echo $color; ?>" stroke-width="14" fill="none"
+        stroke-dasharray="<?php echo $percentage * 2.83; ?> 999" stroke-linecap="round" />
+
+    <!-- Center Value -->
+    <text x="100" y="85" text-anchor="middle" class="wpsa-gauge-value">
+        <?php echo $display; ?>
+    </text>
+    <text x="100" y="100" text-anchor="middle" class="wpsa-gauge-text">
+        Total Site Size
+    </text>
+
+</svg>
+
+<?php
+    return ob_get_clean();
+}
+
+
+
 private static function scan_logs() {
 
-    $logs = [];
+    $log_files = [];
+    $total_size = 0;
 
-    foreach (glob(ABSPATH . '*.log') as $file) {
-        $logs[] = [
-            'name' => basename($file),
-            'size' => filesize($file)
-        ];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(ABSPATH, FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $file) {
+
+        if (!$file->isFile()) continue;
+
+        $filename  = $file->getFilename();
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        // Only real .log files
+        if ($extension === 'log') {
+
+            $size = $file->getSize();
+
+            $log_files[] = [
+                'name' => $filename,
+                'size' => $size
+            ];
+
+            $total_size += $size;
+        }
     }
 
-    if (file_exists(ABSPATH . 'error_log')) {
-        $logs[] = [
-            'name' => 'error_log',
-            'size' => filesize(ABSPATH . 'error_log')
-        ];
-    }
-
-    return $logs;
+    return [
+        'files' => $log_files,
+        'total' => $total_size
+    ];
 }
+
 
 private static function scan_temp() {
 
@@ -670,26 +881,44 @@ private static function scan_large_files($path, $limit = 10485760) {
 
     $active_count = count(array_filter($data['plugins'], fn($p) => $p['active']));
     $total_plugins = count($data['plugins']);
+    $plugin_count_status = WP_Site_Audit_Health::plugin_count($active_count);
+    $inactive_plugin_count_status = WP_Site_Audit_Health::inactive_plugins($total_plugins - $active_count);
+    $wp_version_status = WP_Site_Audit_Health::wp_version($data['compat']['wp']);
 
     echo '<div class="wpsa-card-grid">';
 
-    echo self::card('Active Plugins', $active_count);
-    echo self::card('Inactive Plugins', $total_plugins - $active_count);
-    echo self::card('PHP Version', $data['compat']['php']);
-    echo self::card('WordPress', $data['compat']['wp']);
+    echo self::card(
+        'Active Plugins',
+        $plugin_count_status['value'],
+        $plugin_count_status['state'],
+        $plugin_count_status['tooltip']
+    );
+    echo self::card(
+        'Inactive Plugins',
+        $inactive_plugin_count_status['value'],
+        $inactive_plugin_count_status['state'],
+        $inactive_plugin_count_status['tooltip']
+    );
+    echo self::card(
+        'WordPress Version',
+        $wp_version_status['value'],
+        $wp_version_status['state'],
+        $wp_version_status['tooltip']
+    );
 
     echo '</div>';
 
-    echo '<div class="wpsa-table-card"><h3>Plugins</h3>';
+    echo '<div class="wpsa-table-container">';
+    echo '<div class="wpsa-first-table-card"><h3>Plugins</h3>';
 
-    echo '<table class="wpsa-table">
+    echo '<table class="wpsa-plugin-table">
     <tr><th>Name</th><th>Version</th><th>Status</th></tr>';
 
     foreach ($data['plugins'] as $p) {
 
         $status = $p['active']
-            ? '<span class="wpsa-ok">Active</span>'
-            : '<span class="wpsa-bad">Inactive</span>';
+            ? '<span class="wpsa-plugin-active">Active</span>'
+            : '<span class="wpsa-plugin-inactive">Inactive</span>';
 
         echo "<tr>
                 <td>{$p['name']}</td>
@@ -700,16 +929,16 @@ private static function scan_large_files($path, $limit = 10485760) {
 
     echo '</table></div>';
 
-    echo '<div class="wpsa-table-card"><h3>Themes</h3>';
+    echo '<div class="wpsa-second-table-card"><h3>Themes</h3>';
 
-    echo '<table class="wpsa-table">
+    echo '<table class="wpsa-theme-table">
     <tr><th>Name</th><th>Version</th><th>Status</th></tr>';
 
     foreach ($data['themes'] as $t) {
 
         $status = $t['active']
-            ? '<span class="wpsa-ok">Active</span>'
-            : 'Inactive';
+            ? '<span class="wpsa-theme-active">Active</span>'
+            : '<span class="wpsa-theme-inactive">Inactive</span>';
 
         echo "<tr>
                 <td>{$t['name']}</td>
@@ -719,19 +948,7 @@ private static function scan_large_files($path, $limit = 10485760) {
     }
 
     echo '</table></div>';
-
-    if ($data['redundancy']) {
-
-    echo '<div class="wpsa-table-card wpsa-warning">';
-    echo '<h3>⚠ Plugin Conflicts</h3>';
-
-    foreach ($data['redundancy'] as $w) {
-        echo "<p>$w</p>";
-    }
-
     echo '</div>';
-}
-
 
     }
 
@@ -740,8 +957,7 @@ private static function scan_large_files($path, $limit = 10485760) {
     return [
         'plugins' => self::get_plugins_list(),
         'themes'  => self::get_themes_list(),
-        'compat'  => self::compatibility_check(),
-        'redundancy' => self::detect_redundancy()
+        'compat'  => self::compatibility_check()
     ];
 }
 
@@ -795,68 +1011,72 @@ private static function compatibility_check() {
     ];
 }
 
-private static function detect_redundancy() {
-
-    $groups = [
-        'cache' => [
-            'litespeed-cache',
-            'wp-super-cache',
-            'w3-total-cache',
-            'wp-rocket'
-        ],
-        'security' => [
-            'wordfence',
-            'defender-security',
-            'ithemes-security',
-            'sucuri'
-        ],
-        'pagebuilder' => [
-            'elementor',
-            'js_composer',
-            'wpbakery'
-        ]
-    ];
-
-    $active = get_option('active_plugins');
-
-    $warnings = [];
-
-    foreach ($groups as $type => $keywords) {
-
-        $found = [];
-
-        foreach ($active as $plugin) {
-            foreach ($keywords as $key) {
-                if (strpos($plugin, $key) !== false) {
-                    $found[] = $plugin;
-                }
-            }
-        }
-
-        if (count($found) > 1) {
-            $warnings[] = ucfirst($type) . ' plugins conflict: ' . count($found);
-        }
-    }
-
-    return $warnings;
-}
-
-
-
 /* -----------------------Export tab ---------------------------*/
     public static function render_export_tab() {
 
-    echo '<div class="wpsa-export">';
+    echo '<div class="wpsa-export-container">';
+        echo '<div class="wpsa-export-large-sec">';
+            echo '<h2>Export Audit Report</h2>';
 
-    echo '<h2>Export Audit Report</h2>';
+            echo '<div class="wpsa-export-options">
+            <label>
+                <input type="radio" name="wpsa_export_type" value="html" checked>
+                HTML Report
+            </label>
 
-    echo '<a href="' . admin_url('admin-post.php?action=wpsa_export&type=html') . '" class="button button-primary">Download HTML</a> ';
+            <label>
+                <input type="radio" name="wpsa_export_type" value="txt">
+                TXT Report
+            </label>
 
-echo '<a href="' . admin_url('admin-post.php?action=wpsa_export&type=csv') . '" class="button">Download CSV</a> ';
+            <label>
+                <input type="radio" name="wpsa_export_type" value="json">
+                JSON Report
+            </label>
 
-echo '<a href="' . admin_url('admin-post.php?action=wpsa_export&type=json') . '" class="button">Download JSON</a>';
+            <label>
+                <input type="radio" name="wpsa_export_type" value="csv">
+                CSV Report
+            </label>
 
-echo '</div>';
+            <label>
+                <input type="radio" name="wpsa_export_type" value="pdf">
+                PDF (Print)
+            </label>
+
+        </div>';
+
+        /* ACTION BUTTONS */
+        echo '<div class="wpsa-export-actions">
+            <button id="wpsa-download" class="button button-primary">Download</button>
+            <a id="wpsa-preview" class="button" target="_blank">Preview</a>
+        </div>';
+
+            
+        echo '</div>';
+        echo '<div class="wpsa-export-small-sec">';
+            echo '<h2>Helpful Links</h2>';
+
+            echo '<a>';
+            echo '<div class="wpsa-links-sec">';
+            echo '<p><span class="icon-alert"></span>Request Feature</p>';
+            echo '</div>';
+            echo '</a>';
+
+            echo '<a>';
+            echo '<div class="wpsa-links-sec">';
+            echo '<p><span class="icon-question"></span>Get Support</p>';
+            echo '</div>';
+            echo '</a>';
+
+            echo '<a>';
+            echo '<div class="wpsa-links-sec">';
+            echo '<p><span class="icon-tick"></span>Rate our Plugin</p>';
+            echo '</div>';
+            echo '</a>';
+
+        echo '</div>';
+    echo '</div>';
 }
 
 private static function get_database_data() {
@@ -911,8 +1131,8 @@ private static function collect_full_report() {
         'database'    => self::get_database_data(),
         'performance' => self::get_site_performance_data(),
         'security'    => self::get_site_security_data(),
-        'files'       => self::get_filesystem_data(), 
-        'plugins'     => self::get_plugins_data()       
+        'files'       => self::get_filesystem_data(),
+        'plugins'     => self::get_plugins_data()
     ];
 }
 
@@ -940,6 +1160,19 @@ public static function handle_export() {
     case 'csv':
         self::export_csv($report);
         break;
+
+    case 'txt':
+        self::export_txt($report);
+        break;
+
+    case 'pdf':
+        self::export_pdf($report);
+        break;
+    
+    case 'preview':
+        self::preview_html($report);
+        break;
+
 
     case 'html':
     default:
@@ -1000,14 +1233,48 @@ fputcsv($out, []);
 fclose($out);
 }
 
-private static function export_html($data) {
+private static function export_txt($data) {
 
+    header('Content-Type: text/plain');
+    header('Content-Disposition: attachment; filename=wp-site-audit.txt');
+
+    foreach ($data as $section => $values) {
+
+        echo strtoupper($section) . "\n";
+        echo str_repeat("=", 30) . "\n";
+
+        foreach ($values as $k => $v) {
+
+            if (!is_array($v)) {
+                echo "$k: $v\n";
+            } else {
+                echo "$k:\n";
+                foreach ($v as $item) {
+                    if (is_array($item)) {
+                        echo " - " . implode(", ", $item) . "\n";
+                    }
+                }
+            }
+        }
+
+        echo "\n\n";
+    }
+}
+
+private static function preview_html($data) {
+
+    // no content-disposition = browser renders
     header('Content-Type: text/html');
-    header('Content-Disposition: attachment; filename=wp-site-audit-report.html');
 
+    // reuse same UI
+    self::render_html_template($data);
+
+    exit;
+}
+
+private static function render_html_template($data) {
     $date = date('Y-m-d H:i:s');
     ?>
-
 <!DOCTYPE html>
 <html>
 
@@ -1017,25 +1284,32 @@ private static function export_html($data) {
 
     <style>
     /* ===============================
-   GLOBAL
-================================ */
+            GLOBAL
+            ================================ */
     body {
         margin: 0;
         font-family: Inter, Arial, sans-serif;
-        background: #0f1117;
+        background: #F0F0F1;
         color: #e5e7eb;
     }
 
     /* ===============================
-   HEADER
-================================ */
+            HEADER
+            ================================ */
     .header {
         padding: 40px;
         text-align: center;
-        background: radial-gradient(circle,
-                rgba(238, 174, 202, 1) 0%,
-                rgba(148, 187, 233, 1) 100%);
+        background-color: #fff;
         color: #111;
+    }
+
+    h2,
+    h3 {
+        color: #181C25;
+    }
+
+    .card h3 {
+        color: #e5e7eb;
     }
 
     .header h1 {
@@ -1048,9 +1322,14 @@ private static function export_html($data) {
         opacity: .8;
     }
 
+    .wpsa-logo {
+        width: 78px;
+        height: 78px;
+    }
+
     /* ===============================
-   LAYOUT
-================================ */
+            LAYOUT
+            ================================ */
     .container {
         padding: 40px;
         max-width: 1200px;
@@ -1064,17 +1343,21 @@ private static function export_html($data) {
     .section h2 {
         font-size: 20px;
         margin-bottom: 15px;
-        border-left: 5px solid #94bbe9;
+        border-left: 5px solid #ff914d;
         padding-left: 10px;
     }
 
     /* ===============================
-   CARDS
-================================ */
+            CARDS
+            ================================ */
     .cards {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 20px;
+    }
+
+    .cards-margin {
+        margin-top: 15px;
     }
 
     .card {
@@ -1097,8 +1380,8 @@ private static function export_html($data) {
     }
 
     /* ===============================
-   TABLE
-================================ */
+            TABLE
+            ================================ */
     table {
         width: 100%;
         border-collapse: collapse;
@@ -1126,7 +1409,7 @@ private static function export_html($data) {
 
     .total {
         font-weight: 700;
-        color: #94bbe9;
+        color: #ff914d;
     }
 
     /* badges */
@@ -1150,6 +1433,7 @@ private static function export_html($data) {
         padding: 30px;
         opacity: .5;
         font-size: 12px;
+        color: #181C25;
     }
     </style>
 </head>
@@ -1157,6 +1441,9 @@ private static function export_html($data) {
 <body>
 
     <div class="header">
+        <div class="wpsa-header">
+            <img class="wpsa-logo" src="<?php echo esc_url(WPSA_URL . 'assets/wp-site-audit-logo.png'); ?>">
+        </div>
         <h1>WP Site Audit Report</h1>
         <small>Generated on <?php echo $date; ?></small>
     </div>
@@ -1164,11 +1451,12 @@ private static function export_html($data) {
     <div class="container">
 
         <?php
-/* =================================================
-   DATABASE
-================================================= */
-$db = $data['database'];
-?>
+            /* =================================================
+            DATABASE
+            ================================================= */
+            $report = self::get_report();
+            $db = $report['database'];
+            ?>
 
         <div class="section">
             <h2>Database Overview</h2>
@@ -1180,11 +1468,34 @@ $db = $data['database'];
                 </div>
 
                 <div class="card">
-                    <h3>Total Size</h3>
-                    <p><?php echo $db['total_size']; ?></p>
+                    <h3>Total Database Size</h3>
+                    <p><?php echo $db['total_size_mb'];  ?> MB</p>
                 </div>
             </div>
 
+            <div class="cards cards-margin">
+                <div class="card">
+                    <h3>Overhead</h3>
+                    <p><?php echo $db['total_overhead_mb'];  ?> MB</p>
+                </div>
+
+                <div class="card">
+                    <h3>Revisions</h3>
+                    <p><?php echo $db['revisions'];  ?></p>
+                </div>
+
+                <div class="card">
+                    <h3>Transients</h3>
+                    <p><?php echo $db['transients'];  ?></p>
+                </div>
+
+                <div class="card">
+                    <h3>Spam Comments</h3>
+                    <p><?php echo $db['spam_comments'];  ?></p>
+                </div>
+            </div>
+
+            <h3>Database Table</h3>
             <table>
                 <tr>
                     <th>Table</th>
@@ -1201,54 +1512,84 @@ $db = $data['database'];
                 <?php endforeach; ?>
 
                 <tr class="total">
-                    <td colspan="2">TOTAL</td>
-                    <td><?php echo $db['total_size']; ?></td>
+                    <td>TOTAL</td>
+                    <td><?php echo $db['total_rows']; ?></td>
+                    <td><?php echo $db['total_size_mb']; ?> MB</td>
                 </tr>
             </table>
         </div>
 
 
         <?php
-/* =================================================
-   PERFORMANCE
-================================================= */
-$p = $data['performance'];
-?>
+            /* =================================================
+            PERFORMANCE
+            ================================================= */
+            $report = self::get_report();
+            $perf = $report['performance'];
+            ?>
 
         <div class="section">
             <h2>Performance Environment</h2>
 
             <div class="cards">
                 <div class="card">
+                    <h3>Requests</h3>
+                    <p><?php echo $perf['requests']; ?></p>
+                </div>
+
+                <div class="card">
+                    <h3>Page Size</h3>
+                    <p><?php echo $perf['page_size_mb']; ?> MB</p>
+                </div>
+            </div>
+
+            <div class="cards cards-margin">
+                <div class="card">
+                    <h3>Cache</h3>
+                    <p><?php echo $perf['cache_plugin']; ?></p>
+                </div>
+
+                <div class="card">
                     <h3>PHP Version</h3>
-                    <p><?php echo $p['php_version']; ?></p>
+                    <p><?php echo $perf['php_version']; ?></p>
                 </div>
 
                 <div class="card">
                     <h3>Memory Usage</h3>
-                    <p><?php echo $p['php_memory']; ?></p>
-                </div>
-
-                <div class="card">
-                    <h3>Server</h3>
-                    <p style="font-size:13px"><?php echo $p['server']; ?></p>
+                    <p><?php echo $perf['memory_limit']; ?></p>
                 </div>
             </div>
+
+            <h3>Largest Resources</h3>
+            <table>
+                <tr>
+                    <th>Resource</th>
+                    <th>Size</th>
+                </tr>
+
+                <?php foreach($perf['largest_resources'] as $t): ?>
+                <tr>
+                    <?php $resource_size = round($t['size']/(1024*1024), 2) ?>
+                    <td><?php echo $t['name']; ?></td>
+                    <td><?php echo $resource_size; ?> MB</td>
+                </tr>
+                <?php endforeach; ?>
+            </table>
         </div>
 
 
         <?php
-/* =================================================
-   SECURITY
-================================================= */
-$s = $data['security'];
+            /* =================================================
+            SECURITY
+            ================================================= */
+            $s = $data['security'];
 
-function badge($val){
-    if($val === 'Yes' || $val === 'Disabled') return 'badge-ok';
-    if($val === 'Enabled') return 'badge-warn';
-    return 'badge-bad';
-}
-?>
+            function badge($val){
+                if($val === 'Yes' || $val === 'Disabled') return 'badge-ok';
+                if($val === 'Enabled') return 'badge-warn';
+                return 'badge-bad';
+            }
+            ?>
 
         <div class="section">
             <h2>Security Status</h2>
@@ -1263,11 +1604,11 @@ function badge($val){
             </div>
         </div>
         <?php
-/* =================================================
-   FILES
-================================================= */
-$f = $data['files'];
-?>
+            /* =================================================
+            FILES
+            ================================================= */
+            $f = $data['files'];
+            ?>
 
         <div class="section">
             <h2>Files Overview</h2>
@@ -1328,11 +1669,11 @@ $f = $data['files'];
             <?php endif; ?>
         </div>
         <?php
-/* =================================================
-   PLUGINS & THEMES
-================================================= */
-$p = $data['plugins'];
-?>
+            /* =================================================
+            PLUGINS & THEMES
+            ================================================= */
+            $p = $data['plugins'];
+            ?>
 
         <div class="section">
             <h2>Plugins Overview</h2>
@@ -1395,8 +1736,20 @@ $p = $data['plugins'];
 
 </html>
 
+
 <?php
-exit;
+}
+
+
+
+
+private static function export_html($data) {
+
+    header('Content-Type: text/html');
+    header('Content-Disposition: attachment; filename=wp-site-audit-report.html');
+
+    self::render_html_template($data);
+    exit;
 }
 
 
@@ -1413,4 +1766,14 @@ WP_SITE_AUDIT_URL . 'admin/css/admin-style.css',
 [],
 '1.2'
 );
+
+/* script enqueue */
+wp_enqueue_script(
+    'wpsa-export-js',
+    WP_SITE_AUDIT_URL . 'admin/js/export.js',
+    [],
+    '1.0',
+    true
+);
+
 });

@@ -21,6 +21,9 @@ require_once WP_SITE_AUDIT_PATH . 'includes/class-db.php';
 require_once WP_SITE_AUDIT_PATH . 'includes/class-files.php';
 require_once WP_SITE_AUDIT_PATH . 'includes/class-performance.php';
 require_once WP_SITE_AUDIT_PATH . 'includes/class-health-evaluator.php';
+require_once WP_SITE_AUDIT_PATH . 'includes/class-data.php';
+require_once WP_SITE_AUDIT_PATH . 'includes/class-report.php';
+
 
 // initialize menu only
 add_action('admin_menu', ['WP_Site_Audit_Admin', 'init']);

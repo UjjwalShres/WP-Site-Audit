@@ -1,0 +1,53 @@
+private static function gauge($value_mb) {
+
+    $max = 3000; // 3GB
+    $percentage = min(($value_mb / $max) * 100, 100);
+
+    if ($value_mb <= 300) {
+        $color = '#ceeac2'; // green
+    } elseif ($value_mb <= 1000) {
+        $color = '#ffd0b3'; // orange
+    } else {
+        $color = '#ffc6c6'; // red
+    }
+
+    $stroke_dasharray = 440; // circumference of circle
+    $stroke_dashoffset = $stroke_dasharray - ($stroke_dasharray * $percentage / 100);
+
+    ob_start();
+    ?>
+
+    <div class="wpsa-gauge">
+        <svg viewBox="0 0 200 120">
+            
+            <!-- Background Arc -->
+            <path d="M20 100 A80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="#e5e5e5"
+                  stroke-width="15"/>
+
+            <!-- Active Arc -->
+            <path d="M20 100 A80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="<?php echo $color; ?>"
+                  stroke-width="15"
+                  stroke-dasharray="<?php echo $stroke_dasharray; ?>"
+                  stroke-dashoffset="<?php echo $stroke_dashoffset; ?>"
+                  stroke-linecap="round"/>
+
+            <!-- Center Value -->
+            <text x="100" y="85"
+                  text-anchor="middle" class="wpsa-gauge-value">
+                <?php echo $value_mb; ?>   
+            </text>
+            <text x="100" y="100"
+                  text-anchor="middle"  class="wpsa-gauge-text">
+                  Total Site Size
+            </text>
+
+        </svg>
+    </div>
+
+    <?php
+    return ob_get_clean();
+}

@@ -16,14 +16,17 @@ class WP_Site_Audit_DB {
         $data = [];
         $total_size = 0;
         $total_overhead = 0;
+        $total_rows = 0;
 
         foreach($tables as $table){
 
             $size = $table['Data_length'] + $table['Index_length'];
             $overhead = $table['Data_free'];
+            $rows = $table['Rows'];
 
             $total_size += $size;
             $total_overhead += $overhead;
+            $total_rows += $rows;
 
             $data[] = [
                 'name' => $table['Name'],
@@ -36,7 +39,8 @@ class WP_Site_Audit_DB {
         return [
             'tables' => $data,
             'total_size' => $total_size,
-            'total_overhead' => $total_overhead
+            'total_overhead' => $total_overhead,
+            'total_rows' => $total_rows
         ];
     }
 
